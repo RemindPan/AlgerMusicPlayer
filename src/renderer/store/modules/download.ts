@@ -28,6 +28,8 @@ export const useDownloadStore = defineStore(
 
     // Track whether IPC listeners have been registered
     let listenersInitialised = false;
+    // 合并连续完成事件触发的已下载列表刷新，避免批量下载时高频 IPC（#703）
+    let refreshCompletedTimer: ReturnType<typeof setTimeout> | null = null;
 
     // ── Computed ───────────────────────────────────────────────────────────
     const downloadingList = computed(() => {
@@ -160,7 +162,9 @@ export const useDownloadStore = defineStore(
         if (state === DOWNLOAD_TASK_STATE.completed || state === DOWNLOAD_TASK_STATE.cancelled) {
           tasks.value.delete(taskId);
           if (state === DOWNLOAD_TASK_STATE.completed) {
-            setTimeout(() => {
+            if (refreshCompletedTimer) clearTimeout(refreshCompletedTimer);
+            refreshCompletedTimer = setTimeout(() => {
+              refreshCompletedTimer = null;
               refreshCompleted();
             }, 500);
           }

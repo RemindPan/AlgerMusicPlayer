@@ -1,7 +1,10 @@
 <template>
   <div
     class="lyric-window"
-    :class="[lyricSetting.theme, { lyric_lock: lyricSetting.isLock }]"
+    :class="[
+      lyricSetting.theme,
+      { lyric_lock: lyricSetting.isLock, 'bar-bottom': controlBarAtBottom }
+    ]"
     @mousedown="handleMouseDown"
     @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
@@ -397,8 +400,24 @@ const handleLockedMouseMove = () => {
   showLockedControls();
 };
 
+// 控制栏位置：歌词窗口贴近屏幕顶部时，功能栏翻转到歌词下方，
+// 避免锁定等功能键被挤在屏幕最上沿难以点击（#719）
+const controlBarAtBottom = ref(false);
+/** 窗口顶边距屏幕可用区顶部小于该值时，认为歌词位于桌面顶部 */
+const CONTROL_BAR_FLIP_THRESHOLD = 90;
+
+const updateControlBarPosition = () => {
+  try {
+    const availTop = (window.screen as any).availTop ?? 0;
+    controlBarAtBottom.value = window.screenY - availTop < CONTROL_BAR_FLIP_THRESHOLD;
+  } catch (error) {
+    console.error('计算控制栏位置失败:', error);
+  }
+};
+
 // 处理鼠标进入窗口
 const handleMouseEnter = () => {
+  updateControlBarPosition();
   if (lyricSetting.value.isLock) {
     isHovering.value = true;
     windowData.electron.ipcRenderer.send('set-ignore-mouse', true);
@@ -443,12 +462,15 @@ onMounted(() => {
   if (lyricSetting.value.isLock) {
     isHovering.value = false;
   }
+  updateControlBarPosition();
   document.addEventListener('mousemove', handleLockedMouseMove);
+  window.addEventListener('resize', updateControlBarPosition);
 });
 
 onUnmounted(() => {
   clearHideTimer();
   document.removeEventListener('mousemove', handleLockedMouseMove);
+  window.removeEventListener('resize', updateControlBarPosition);
 });
 
 // 计算歌词滚动位置
@@ -1113,6 +1135,8 @@ const handleMouseDown = (e: MouseEvent) => {
       // 发送移动事件到主进程
       windowData.electron.ipcRenderer.send('lyric-drag-move', { deltaX, deltaY });
       startPosition.value = { x: e.screenX, y: e.screenY };
+      // 拖动过程中实时判断是否需要把控制栏翻到歌词下方（#719）
+      updateControlBarPosition();
     }
   };
 
@@ -1122,6 +1146,7 @@ const handleMouseDown = (e: MouseEvent) => {
 
     // 发送拖动结束信号到主进程
     windowData.electron.ipcRenderer.send('lyric-drag-end');
+    updateControlBarPosition();
 
     // 移除事件监听
     document.removeEventListener('mousemove', handleMouseMove);
@@ -1292,6 +1317,25 @@ body,
 
   .control-buttons {
     -webkit-app-region: no-drag;
+  }
+}
+
+/* 歌词窗口贴近屏幕顶部时，功能栏整体翻转到歌词下方（#719） */
+.lyric-window.bar-bottom {
+  .control-bar {
+    top: auto;
+    bottom: 10px;
+    align-items: end;
+
+    .play-controls {
+      top: auto;
+      bottom: 0;
+    }
+  }
+
+  :deep(.theme-color-panel) {
+    top: auto;
+    bottom: 50px;
   }
 }
 
@@ -1553,6 +1597,12 @@ body {
     top: 0;
     right: 72px;
     background: var(--control-bg);
+  }
+
+  /* 控制栏翻转到下方时，锁定按钮同步贴到控制栏底部（#719） */
+  &.bar-bottom #lyric-lock {
+    top: auto;
+    bottom: 0;
   }
 }
 </style>
